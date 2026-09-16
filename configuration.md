@@ -239,25 +239,34 @@ go run ./cmd/migrate version
 
 ### 3.8 Admin API（mint Gateway key）
 
+迁移 seed 的 subject 为 **`subject_default`**（不是 `kb-server`）。`CreateKey` 不会自动创建 subject；对不存在的 subject mint key 会返回 `500 key_create_failed`。
+
+**本仓库推荐：** 先跑 [`gateway/scripts/bootstrap-fake.sh`](gateway/scripts/bootstrap-fake.sh)（fake）或按 [`gateway/bootstrap-production.md`](gateway/bootstrap-production.md) 初始化 catalog，再 mint key。
+
 ```bash
-export GATEWAY_ADMIN_URL=http://127.0.0.1:8092
-export GATEWAY_ADMIN_TOKEN=smoke-admin-throwaway
+# 从 gateway/.env 读取（勿硬编码 smoke-admin-throwaway）
+set -a && source gateway/.env && set +a
+export GATEWAY_ADMIN_URL=http://127.0.0.1:${GATEWAY_ADMIN_HOST_PORT:-8092}
+export GATEWAY_SUBJECT=subject_default
+
+curl -s -X POST "$GATEWAY_ADMIN_URL/admin/policies/${GATEWAY_SUBJECT}/default-model" \
+  -H "Authorization: Bearer $GATEWAY_ADMIN_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"gateway-echo","kind":"chat"}'
+
+curl -s -X POST "$GATEWAY_ADMIN_URL/admin/policies/${GATEWAY_SUBJECT}/default-model" \
+  -H "Authorization: Bearer $GATEWAY_ADMIN_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"gateway-echo","kind":"embedding"}'
 
 curl -s -X POST "$GATEWAY_ADMIN_URL/admin/keys" \
   -H "Authorization: Bearer $GATEWAY_ADMIN_TOKEN" \
   -H 'Content-Type: application/json' \
-  -d '{"subject":"kb-server","expires_in_hours":8760}'
-# 响应中的 key 明文只返回一次，写入 server 的 KB_CHAT_API_KEY
+  -d "{\"subject\":\"${GATEWAY_SUBJECT}\",\"expires_in_hours\":8760}"
+# 响应 key → server/.env 的 KB_CHAT_API_KEY / KB_EMBEDDING_API_KEY
 ```
 
-设置 subject 默认模型（v1.3，可替代 server 的 `KB_CHAT_MODEL`）：
-
-```bash
-curl -s -X POST -H "Authorization: Bearer $GATEWAY_ADMIN_TOKEN" \
-  -H 'Content-Type: application/json' \
-  "$GATEWAY_ADMIN_URL/admin/policies/kb-server/default-model" \
-  -d '{"model":"gateway-echo","kind":"chat"}'
-```
+生产 embedding 模型（如 `qwen3-embedding`，1536 维）须 **先** 存在于 catalog 与 `access_policies`，且 `KB_EMBEDDING_DIM` 与 catalog `embedding_dim` 一致。
 
 ---
 
@@ -618,16 +627,23 @@ flutter run --dart-define=OIDC_ISSUER=http://localhost:8180/realms/kb
 
 **Compose 注入（勿在 `server/.env` 重复）：** `GATEWAY_DATABASE_URL`、`GATEWAY_REDIS_ADDR`、`KB_DATABASE_URL`、`KB_ELASTICSEARCH_URL`、`KB_REDIS_URL`。
 
-**启动命令：**
+密码含 `/ ? # @ :` 等 URI 保留字符时，在 `.env.prod` 设置完整 `GATEWAY_DATABASE_URL` / `KB_DATABASE_URL`（URL 编码密码），见 [`.env.prod.example`](.env.prod.example)。
+
+**分阶段启动：**
 
 ```bash
-docker compose \
-  --env-file .env.prod \
-  --env-file gateway/.env \
-  --env-file server/.env \
-  --env-file keycloak/.env \
-  -f docker-compose.prod.yml up -d
+# 1) 基础设施 + Gateway（无 Server）
+docker compose ... up -d
+
+# 2) Gateway bootstrap → 更新 server/.env
+./gateway/scripts/bootstrap-fake.sh          # fake
+# 或 gateway/bootstrap-production.md          # 生产
+
+# 3) Server
+docker compose ... --profile app up -d server
 ```
+
+Gateway 业务初始化详见 [`gateway/bootstrap-production.md`](gateway/bootstrap-production.md)。
 
 **生产 OIDC 示例（`server/.env`）：**
 
