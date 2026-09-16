@@ -6,7 +6,7 @@
 #
 # Usage:
 #   cp .env.example .env && $EDITOR .env
-#   docker compose up -d --build
+#   # start Keycloak (image from KEYCLOAK_IMAGE), import import/cybervem-realm.json
 #   ./scripts/post-import.sh
 
 set -euo pipefail
