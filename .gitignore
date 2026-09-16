@@ -1,0 +1,4 @@
+.env.prod
+gateway/.env
+server/.env
+keycloak/.env

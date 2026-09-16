@@ -1,0 +1,308 @@
+# Unified production stack for knowledge-base-deploy.
+#
+# Shared infrastructure: one PostgreSQL (pgvector) + one Redis.
+# Application images are pulled from GHCR release tags (no local build).
+#
+# Dependency order:
+#
+#   postgres healthy ─┬─► gateway-migrate ──► gateway
+#                     ├─► server-migrate  ──► server / worker
+#                     └─► keycloak (--import-realm on empty keycloak DB)
+#   redis healthy     ───► gateway, server, worker
+#   elasticsearch     ───► server, worker
+#
+# Keycloak bootstrap (first deploy or after wiping keycloak DB):
+#   docker compose \
+#     --env-file .env.prod --env-file gateway/.env \
+#     --env-file server/.env --env-file keycloak/.env \
+#     -f docker-compose.prod.yml --profile bootstrap up keycloak-post-import
+#
+# Prerequisites (Linux host):
+#   sysctl -w vm.max_map_count=262144
+#
+# Usage:
+#   cp .env.prod.example .env.prod && chmod 600 .env.prod
+#   cp gateway/.env.example gateway/.env
+#   cp server/.env.example server/.env
+#   cp keycloak/.env.example keycloak/.env
+#   docker compose \
+#     --env-file .env.prod --env-file gateway/.env \
+#     --env-file server/.env --env-file keycloak/.env \
+#     -f docker-compose.prod.yml pull
+#   docker compose \
+#     --env-file .env.prod --env-file gateway/.env \
+#     --env-file server/.env --env-file keycloak/.env \
+#     -f docker-compose.prod.yml up -d
+#
+# --import-realm runs on every Keycloak start but only imports into an empty
+# keycloak database. Re-import requires clearing the keycloak DB (see keycloak.md).
+
+name: kb-deploy
+
+x-gateway-database-url: &gateway-database-url >-
+  postgres://${GATEWAY_DB_USER:-gateway}:${GATEWAY_DB_PASSWORD:-gateway-local-throwaway}@postgres:5432/${GATEWAY_DB_NAME:-gateway}?sslmode=disable
+
+x-server-database-url: &server-database-url >-
+  postgresql+asyncpg://${KB_DB_USER:-kb}:${KB_DB_PASSWORD:-kb-local-throwaway}@postgres:5432/${KB_DB_NAME:-kb}
+
+x-gateway-image: &gateway-image
+  image: ${GATEWAY_IMAGE:-ghcr.io/lennylin-lab/knowledge-base-gateway:v1.3}
+
+x-server-image: &server-image
+  image: ${SERVER_IMAGE:-ghcr.io/lennylin-lab/knowledge-base-server:v0.1.0}
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres-local-throwaway}
+      POSTGRES_DB: ${POSTGRES_DB:-postgres}
+      GATEWAY_DB_USER: ${GATEWAY_DB_USER:-gateway}
+      GATEWAY_DB_PASSWORD: ${GATEWAY_DB_PASSWORD:-gateway-local-throwaway}
+      GATEWAY_DB_NAME: ${GATEWAY_DB_NAME:-gateway}
+      KB_DB_USER: ${KB_DB_USER:-kb}
+      KB_DB_PASSWORD: ${KB_DB_PASSWORD:-kb-local-throwaway}
+      KB_DB_NAME: ${KB_DB_NAME:-kb}
+      KEYCLOAK_DB_USER: ${KEYCLOAK_DB_USER:-keycloak}
+      KEYCLOAK_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD:-keycloak-local-throwaway}
+      KEYCLOAK_DB_NAME: ${KEYCLOAK_DB_NAME:-keycloak}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./docker/postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-postgres}",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 24
+      start_period: 10s
+    security_opt:
+      - no-new-privileges:true
+
+  redis:
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 24
+    security_opt:
+      - no-new-privileges:true
+
+  elasticsearch:
+    image: ${ELASTICSEARCH_IMAGE:-ghcr.io/lennylin-lab/knowledge-base-server/elasticsearch:8.17.3-ik}
+    restart: unless-stopped
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      ES_JAVA_OPTS: ${ES_JAVA_OPTS:--Xms512m -Xmx512m}
+    volumes:
+      - esdata:/usr/share/elasticsearch/data
+    healthcheck:
+      test:
+        ["CMD-SHELL", "curl -fs http://localhost:9200/_cluster/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 24
+      start_period: 30s
+    security_opt:
+      - no-new-privileges:true
+
+  gateway-migrate:
+    <<: *gateway-image
+    entrypoint: ["/app/migrate"]
+    command: ["-dsn", *gateway-database-url, "-dir", "/app/migrations", "up"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+    security_opt:
+      - no-new-privileges:true
+
+  gateway:
+    <<: *gateway-image
+    restart: unless-stopped
+    env_file:
+      - path: gateway/.env
+        required: false
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      gateway-migrate:
+        condition: service_completed_successfully
+    environment:
+      GATEWAY_DATABASE_URL: *gateway-database-url
+      GATEWAY_LIMITS_MODE: redis
+      GATEWAY_REDIS_ADDR: redis:6379
+      GATEWAY_ALLOW_INSECURE_BASE_URLS: "false"
+    ports:
+      - "127.0.0.1:${GATEWAY_HOST_PORT:-8091}:8080"
+      - "127.0.0.1:${GATEWAY_ADMIN_HOST_PORT:-8092}:8081"
+    healthcheck:
+      test:
+        ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/readyz"]
+      interval: 5s
+      timeout: 3s
+      retries: 24
+      start_period: 15s
+    security_opt:
+      - no-new-privileges:true
+
+  server-migrate:
+    <<: *server-image
+    command: ["alembic", "upgrade", "head"]
+    environment:
+      KB_DATABASE_URL: *server-database-url
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+    security_opt:
+      - no-new-privileges:true
+
+  server:
+    <<: *server-image
+    restart: unless-stopped
+    env_file:
+      - path: server/.env
+        required: false
+    environment:
+      KB_DATABASE_URL: *server-database-url
+      KB_ELASTICSEARCH_URL: http://elasticsearch:9200
+      KB_REDIS_URL: redis://redis:6379
+    ports:
+      - "127.0.0.1:${SERVER_HOST_PORT:-8000}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      server-migrate:
+        condition: service_completed_successfully
+      gateway:
+        condition: service_healthy
+    healthcheck:
+      test:
+        ["CMD-SHELL", "curl -fs http://127.0.0.1:8000/healthz || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 24
+      start_period: 15s
+    security_opt:
+      - no-new-privileges:true
+
+  worker:
+    profiles: ["queue"]
+    <<: *server-image
+    restart: unless-stopped
+    command: ["python", "-m", "app.cli", "worker"]
+    env_file:
+      - path: server/.env
+        required: false
+    environment:
+      KB_DATABASE_URL: *server-database-url
+      KB_ELASTICSEARCH_URL: http://elasticsearch:9200
+      KB_REDIS_URL: redis://redis:6379
+    depends_on:
+      postgres:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      server-migrate:
+        condition: service_completed_successfully
+      gateway:
+        condition: service_healthy
+    security_opt:
+      - no-new-privileges:true
+
+  keycloak:
+    container_name: ${KEYCLOAK_CONTAINER:-knowledge-base-keycloak-prod}
+    image: ${KEYCLOAK_IMAGE:-ghcr.io/lennylin-lab/knowledge-base-keycloak:v1.0.0}
+    restart: unless-stopped
+    command: start --import-realm --proxy-headers=xforwarded
+    env_file:
+      - path: keycloak/.env
+        required: false
+    environment:
+      KC_DB: postgres
+      KC_DB_URL_HOST: postgres
+      KC_DB_URL_PORT: "5432"
+      KC_DB_URL_DATABASE: ${KEYCLOAK_DB_NAME:-keycloak}
+      KC_DB_USERNAME: ${KEYCLOAK_DB_USER:-keycloak}
+      KC_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD:-keycloak-local-throwaway}
+      KC_HTTP_ENABLED: "true"
+      KC_HEALTH_ENABLED: "true"
+      KC_PROXY_HEADERS: xforwarded
+    ports:
+      - "127.0.0.1:${KEYCLOAK_HOST_PORT:-8080}:8080"
+    volumes:
+      - ./keycloak/import:/opt/keycloak/data/import:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "exec 3<>/dev/tcp/127.0.0.1/8080 && echo -e 'GET /health/ready HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && grep -q '200 OK' <&3",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 24
+      start_period: 90s
+    security_opt:
+      - no-new-privileges:true
+
+  # One-shot bootstrap after first realm import (Turnstile flow + idempotent theme/CSP).
+  # Requires TURNSTILE_* in keycloak/.env. Safe to re-run; skipped on normal `up` without profile.
+  keycloak-post-import:
+    profiles: ["bootstrap"]
+    image: ${KEYCLOAK_IMAGE:-ghcr.io/lennylin-lab/knowledge-base-keycloak:v1.0.0}
+    entrypoint: ["/bin/bash", "/scripts/post-import-kcadm.sh"]
+    restart: "no"
+    env_file:
+      - path: keycloak/.env
+        required: false
+    environment:
+      KEYCLOAK_URL: http://keycloak:8080
+    volumes:
+      - ./keycloak/scripts/post-import-kcadm.sh:/scripts/post-import-kcadm.sh:ro
+    depends_on:
+      keycloak:
+        condition: service_healthy
+    security_opt:
+      - no-new-privileges:true
+
+  keycloak-post-import-turnstile:
+    profiles: ["bootstrap"]
+    image: python:3.12-slim-bookworm
+    restart: "no"
+    env_file:
+      - path: keycloak/.env
+        required: false
+    environment:
+      KEYCLOAK_URL: http://keycloak:8080
+    volumes:
+      - ./keycloak/scripts/configure-turnstile-login.py:/scripts/configure-turnstile-login.py:ro
+    command: ["python", "/scripts/configure-turnstile-login.py"]
+    depends_on:
+      keycloak-post-import:
+        condition: service_completed_successfully
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  postgres-data:
+  esdata:

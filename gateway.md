@@ -1,6 +1,6 @@
 # Gateway 容器镜像
 
-本文档仅说明 **knowledge-base-gateway** 的生产镜像来源与镜像内布局。环境变量、迁移编排与业务配置见 [`gateway/`](gateway/) 目录；PostgreSQL、Redis 等共用基础设施由 `knowledge-base-deploy` 根目录的统一 Compose 负责（与 gateway 服务目录分离）。
+本文档仅说明 **knowledge-base-gateway** 的生产镜像来源与镜像内布局。环境变量见 [`gateway/.env.example`](gateway/.env.example)；变量语义与联调说明见 [`configuration.md`](configuration.md) §3。PostgreSQL、Redis 等共用基础设施由本仓库 [`docker-compose.prod.yml`](docker-compose.prod.yml) 负责。
 
 源码与 CI 定义在 [`knowledge-base-gateway`](https://github.com/lennylin-lab/knowledge-base-gateway) 仓库。
 

@@ -4,10 +4,15 @@
 # Prerequisite: Keycloak is up and realm CyberVem was imported.
 # Users are NOT created here — add them manually in Admin Console.
 #
-# Usage:
+# Usage (host, after unified compose is up):
 #   cp .env.example .env && $EDITOR .env
-#   # start Keycloak (image from KEYCLOAK_IMAGE), import import/cybervem-realm.json
 #   ./scripts/post-import.sh
+#
+# Or via root compose bootstrap profile (recommended):
+#   docker compose \
+#     --env-file ../.env.prod --env-file ../gateway/.env \
+#     --env-file ../server/.env --env-file ../keycloak/.env \
+#     -f ../docker-compose.prod.yml --profile bootstrap up keycloak-post-import
 
 set -euo pipefail
 

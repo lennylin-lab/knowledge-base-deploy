@@ -1,6 +1,6 @@
 # Keycloak 容器镜像
 
-本文档仅说明 **knowledge-base-keycloak** 的生产镜像来源与镜像内布局。环境变量、realm 导入与导入后脚本见 [`keycloak/`](keycloak/) 目录；PostgreSQL 与反向代理等基础设施由 `knowledge-base-deploy` 根目录的统一 Compose 负责（与 keycloak 服务目录分离）。
+本文档仅说明 **knowledge-base-keycloak** 的生产镜像来源与镜像内布局。环境变量见 [`keycloak/.env.example`](keycloak/.env.example)；realm 导入与 bootstrap 见 [`keycloak/`](keycloak/) 目录；变量语义见 [`configuration.md`](configuration.md) §2。PostgreSQL 与反向代理由本仓库 [`docker-compose.prod.yml`](docker-compose.prod.yml) 负责。
 
 源码与 CI 定义在 [`knowledge-base-keycloak`](https://github.com/lennylin-lab/knowledge-base-keycloak) 仓库。
 
