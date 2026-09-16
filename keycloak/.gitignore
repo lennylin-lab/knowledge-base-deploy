@@ -1,0 +1,6 @@
+.env
+scripts/__pycache__/
+
+# Generated from assets/favicon.svg via scripts/build-theme-icons.sh
+themes/kb/login/resources/img/
+themes/kb/admin/resources/

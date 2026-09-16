@@ -1,0 +1,64 @@
+# Production Keycloak stack (CyberVem).
+#
+# Scope: auth.cybervem.com only. Does not start server/gateway/nginx.
+#
+#   cp .env.example .env   # fill secrets + Turnstile keys
+#   docker compose up -d --build
+#   ./scripts/post-import.sh
+#
+# First boot imports import/cybervem-realm.json when the DB volume is empty.
+# Reverse proxy (nginx / Cloudflare) must terminate TLS and forward
+# X-Forwarded-* headers to this service.
+
+services:
+  keycloak-db:
+    image: postgres:16-alpine
+    container_name: knowledge-base-keycloak-db
+    environment:
+      POSTGRES_DB: keycloak
+      POSTGRES_USER: keycloak
+      POSTGRES_PASSWORD: ${KEYCLOAK_DB_PASSWORD:?set KEYCLOAK_DB_PASSWORD}
+    volumes:
+      - keycloakdb:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U keycloak -d keycloak"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+
+  keycloak:
+    build: .
+    image: ${KEYCLOAK_IMAGE:-kb-keycloak:26.0-prod}
+    container_name: knowledge-base-keycloak-prod
+    depends_on:
+      keycloak-db:
+        condition: service_healthy
+    command: start --import-realm --proxy-headers=xforwarded --http-enabled=true --hostname-strict=true
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://keycloak-db:5432/keycloak
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD}
+      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN:-admin}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:?set KEYCLOAK_ADMIN_PASSWORD}
+      KC_HOSTNAME: ${KEYCLOAK_HOSTNAME:-auth.cybervem.com}
+      KC_HOSTNAME_STRICT: "true"
+      KC_HOSTNAME_STRICT_HTTPS: "true"
+      KC_HTTP_ENABLED: "true"
+      KC_PROXY_HEADERS: xforwarded
+      KC_HEALTH_ENABLED: "true"
+    volumes:
+      - ./import:/opt/keycloak/data/import:ro
+    expose:
+      - "8080"
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/8080"]
+      interval: 10s
+      timeout: 5s
+      retries: 24
+      start_period: 120s
+    restart: unless-stopped
+
+volumes:
+  keycloakdb:
