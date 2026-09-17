@@ -1,33 +1,26 @@
 #!/usr/bin/env bash
-# First-boot only: create isolated databases for gateway, server (pgvector), and keycloak.
-# Passwords may contain single quotes; identifiers are double-quoted when needed.
+# First-boot only (docker-entrypoint-initdb.d): create gateway / kb / keycloak databases.
+# NOT idempotent — runs once on an empty postgres-data volume; re-run manually will fail
+# if roles/databases already exist.
+#
+# Passwords and identifiers are passed via psql -v; psql substitutes :'var' before SQL is
+# sent, then format(%I/%L) quotes safely. Do not pre-escape in shell.
 set -euo pipefail
-
-sql_escape_literal() {
-  printf "%s" "$1" | sed "s/'/''/g"
-}
-
-sql_escape_ident() {
-  printf '%s' "$1" | sed 's/"/""/g'
-}
 
 create_role_and_database() {
   local role=$1 password=$2 db=$3
-  local role_q db_q pass_lit
-  role_q="$(sql_escape_ident "$role")"
-  db_q="$(sql_escape_ident "$db")"
-  pass_lit="$(sql_escape_literal "$password")"
-
-  psql -v ON_ERROR_STOP=1 --username "${POSTGRES_USER}" --dbname "${POSTGRES_DB}" <<-EOSQL
-DO \$\$
-BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '${role_q}') THEN
-    EXECUTE format('CREATE USER %I WITH PASSWORD %L', '${role_q}', '${pass_lit}');
-  END IF;
-END
-\$\$;
-CREATE DATABASE "${db_q}" OWNER "${role_q}";
-GRANT ALL PRIVILEGES ON DATABASE "${db_q}" TO "${role_q}";
+  psql -v ON_ERROR_STOP=1 \
+    --username "${POSTGRES_USER}" \
+    --dbname "${POSTGRES_DB}" \
+    -v "role=${role}" \
+    -v "pass=${password}" \
+    -v "db=${db}" <<'EOSQL'
+SELECT NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = :'role') AS need_role \gset
+\if :need_role
+SELECT format('CREATE USER %I WITH PASSWORD %L', :'role', :'pass') \gexec
+\endif
+SELECT format('CREATE DATABASE %I OWNER %I', :'db', :'role') \gexec
+SELECT format('GRANT ALL PRIVILEGES ON DATABASE %I TO %I', :'db', :'role') \gexec
 EOSQL
 }
 
