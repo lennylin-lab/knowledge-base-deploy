@@ -691,7 +691,7 @@ KB_CHAT_API_KEY=<minted-via-admin-api>
 
 ### Keycloak
 
-- [ ] `$DC up -d` 后 Keycloak `/health/ready` 200
+- [ ] `$DC up -d` 后 Keycloak healthy（`/health/ready` 在容器内 **9000** 管理口；或 `curl http://127.0.0.1:8080/realms/CyberVem`）
 - [ ] 首次：`$DC --profile bootstrap up keycloak-post-import` 完成
 - [ ] Admin Console 创建用户；`aud` 与 `KB_OIDC_AUDIENCE` 一致
 

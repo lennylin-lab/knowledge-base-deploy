@@ -250,6 +250,10 @@ services:
       KC_HTTP_ENABLED: "true"
       KC_HEALTH_ENABLED: "true"
       KC_PROXY_HEADERS: xforwarded
+      # Production `start` requires hostname; keycloak/.env uses KEYCLOAK_HOSTNAME.
+      KC_HOSTNAME: ${KEYCLOAK_HOSTNAME:-localhost}
+      KC_HOSTNAME_STRICT: ${KC_HOSTNAME_STRICT:-false}
+      KC_HOSTNAME_STRICT_HTTPS: ${KC_HOSTNAME_STRICT_HTTPS:-false}
     ports:
       - "127.0.0.1:${KEYCLOAK_HOST_PORT:-8080}:8080"
     volumes:
@@ -258,10 +262,11 @@ services:
       postgres:
         condition: service_healthy
     healthcheck:
+      # Keycloak 26: /health/ready is on the management interface (9000), not HTTP 8080.
       test:
         [
           "CMD-SHELL",
-          "exec 3<>/dev/tcp/127.0.0.1/8080 && echo -e 'GET /health/ready HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && grep -q '200 OK' <&3",
+          "exec 3<>/dev/tcp/127.0.0.1/9000 && echo -e 'GET /health/ready HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && grep -q '200 OK' <&3",
         ]
       interval: 10s
       timeout: 5s

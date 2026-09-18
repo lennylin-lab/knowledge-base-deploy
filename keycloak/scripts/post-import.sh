@@ -32,14 +32,21 @@ KEYCLOAK_ADMIN_PASSWORD="${KEYCLOAK_ADMIN_PASSWORD:?set KEYCLOAK_ADMIN_PASSWORD 
 TURNSTILE_SITE_KEY="${TURNSTILE_SITE_KEY:?set TURNSTILE_SITE_KEY in .env}"
 TURNSTILE_SECRET_KEY="${TURNSTILE_SECRET_KEY:?set TURNSTILE_SECRET_KEY in .env}"
 
+keycloak_container_ready() {
+  docker exec "$KEYCLOAK_CONTAINER" bash -lc \
+    'exec 3<>/dev/tcp/127.0.0.1/9000 && echo -e "GET /health/ready HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n" >&3 && grep -q "200 OK" <&3' \
+    2>/dev/null
+}
+
 wait_for_keycloak() {
   local attempts=60
+  local keycloak_url="${KEYCLOAK_URL:-http://127.0.0.1:8080}"
   for ((i = 1; i <= attempts; i++)); do
     if docker ps --format '{{.Names}}' | grep -qx "$KEYCLOAK_CONTAINER"; then
-      if docker exec "$KEYCLOAK_CONTAINER" bash -lc 'exec 3<>/dev/tcp/127.0.0.1/8080' 2>/dev/null; then
+      if keycloak_container_ready; then
         return 0
       fi
-    elif curl -fsS "${KEYCLOAK_URL:-http://127.0.0.1:8080}/health/ready" >/dev/null 2>&1; then
+    elif curl -fsS "${keycloak_url}/realms/${KEYCLOAK_REALM}" >/dev/null 2>&1; then
       return 0
     fi
     sleep 2

@@ -46,10 +46,10 @@ Realm、client、CSP 细节、Turnstile browser flow 绑定 **不在镜像内**�
 
 | 角色 | 典型启动方式 | 说明 |
 | --- | --- | --- |
-| Keycloak | `start --import-realm --proxy-headers=xforwarded ...` | 监听 **8080**；健康检查 `GET /health/ready` |
+| Keycloak | `start --import-realm --proxy-headers=xforwarded ...` | HTTP **8080**；健康检查 `GET /health/ready` 在管理口 **9000**（`KC_HEALTH_ENABLED=true`） |
 | Postgres | 独立 `keycloak-db` 服务 | 持久化 realm / 用户 / Turnstile 配置；DSN 由 `KC_DB_*` 注入 |
 
-生产建议：`KC_HOSTNAME=auth.cybervem.com`，TLS 与 `X-Forwarded-*` 由前置 nginx / Cloudflare 终止；Keycloak 容器仅内网暴露 8080。
+生产建议：在 `keycloak/.env` 设置 `KEYCLOAK_HOSTNAME=auth.cybervem.com`（compose 映射为 `KC_HOSTNAME`），TLS 与 `X-Forwarded-*` 由前置 nginx / Cloudflare 终止；Keycloak 容器仅内网暴露 8080。
 
 ### 运行时要求
 
