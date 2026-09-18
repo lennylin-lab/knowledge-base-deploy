@@ -26,6 +26,17 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 GATEWAY_ENV="${ROOT}/gateway/.env"
 COMPOSE_FILE="${COMPOSE_FILE:-${ROOT}/docker-compose.prod.yml}"
 
+COMPOSE_ENV_ARGS=()
+for _env_file in .env.prod gateway/.env server/.env keycloak/.env; do
+  if [[ -f "${ROOT}/${_env_file}" ]]; then
+    COMPOSE_ENV_ARGS+=(--env-file "${ROOT}/${_env_file}")
+  fi
+done
+
+compose() {
+  docker compose "${COMPOSE_ENV_ARGS[@]}" -f "${COMPOSE_FILE}" "$@"
+}
+
 # --- catalog defaults (from local dev gateway DB) ---
 OPENAI_CHAT_PROVIDER="${GATEWAY_OPENAI_CHAT_PROVIDER:-openai-primary}"
 OPENAI_CHAT_BASE_URL="${GATEWAY_OPENAI_CHAT_BASE_URL:-https://api.longxiadev.store/v1}"
@@ -45,6 +56,13 @@ GATEWAY_ADMIN_URL="${GATEWAY_ADMIN_URL:-http://127.0.0.1:${GATEWAY_ADMIN_HOST_PO
 CHAT_CAPABILITIES='{"chat": true, "tools": true, "usage": true, "stream": true, "vision": false, "json_mode": false, "max_tools": 16, "reasoning": false, "responses": true, "embeddings": true, "embedding_dim": 1536, "context_tokens": 128000, "max_output_tokens": 8192, "structured_output": true}'
 EMBED_CAPABILITIES='{"chat": false, "stream": false, "embeddings": true, "embedding_dim": 1536}'
 
+if [[ -f "${ROOT}/.env.prod" ]]; then
+  set -a
+  # shellcheck disable=SC1090
+  source "${ROOT}/.env.prod"
+  set +a
+fi
+
 if [[ -f "${GATEWAY_ENV}" ]]; then
   set -a
   # shellcheck disable=SC1090
@@ -54,28 +72,42 @@ fi
 
 ADMIN_TOKEN="${GATEWAY_ADMIN_TOKEN:?set GATEWAY_ADMIN_TOKEN in gateway/.env}"
 
+compose_postgres_running() {
+  compose ps postgres --status running --quiet 2>/dev/null | grep -q .
+}
+
 compose_psql() {
-  docker compose \
-    --env-file "${ROOT}/.env.prod" \
-    --env-file "${ROOT}/gateway/.env" \
-    --env-file "${ROOT}/server/.env" \
-    --env-file "${ROOT}/keycloak/.env" \
-    -f "${COMPOSE_FILE}" \
-    exec -T postgres \
-    psql -v ON_ERROR_STOP=1 -U "${GATEWAY_DB_USER:-gateway}" -d "${GATEWAY_DB_NAME:-gateway}"
+  compose exec -T postgres \
+    psql -v ON_ERROR_STOP=1 -U "${GATEWAY_DB_USER:-gateway}" -d "${GATEWAY_DB_NAME:-gateway}" "$@"
 }
 
 run_psql() {
-  if [[ -f "${ROOT}/.env.prod" ]] && docker compose -f "${COMPOSE_FILE}" ps postgres --status running --quiet 2>/dev/null | grep -q .; then
+  if compose_postgres_running; then
     compose_psql "$@"
-  elif [[ -n "${GATEWAY_DATABASE_URL:-}" ]]; then
+    return
+  fi
+
+  if [[ -n "${GATEWAY_DATABASE_URL:-}" ]]; then
+    if ! command -v psql >/dev/null 2>&1; then
+      echo "error: GATEWAY_DATABASE_URL is set but psql is not installed on the host" >&2
+      exit 1
+    fi
     psql "${GATEWAY_DATABASE_URL}" -v ON_ERROR_STOP=1 "$@"
-  else
+    return
+  fi
+
+  if command -v psql >/dev/null 2>&1; then
     PGPASSWORD="${GATEWAY_DB_PASSWORD:-gateway-local-throwaway}" \
       psql -h "${GATEWAY_DB_HOST:-127.0.0.1}" -p "${GATEWAY_DB_PORT:-5433}" \
       -U "${GATEWAY_DB_USER:-gateway}" -d "${GATEWAY_DB_NAME:-gateway}" \
       -v ON_ERROR_STOP=1 "$@"
+    return
   fi
+
+  echo "error: unified-stack postgres is not running and host psql is unavailable" >&2
+  echo "  start: docker compose ... -f docker-compose.prod.yml up -d postgres" >&2
+  echo "  or set GATEWAY_DATABASE_URL / install psql for direct access" >&2
+  exit 1
 }
 
 sql_escape() {
@@ -196,20 +228,11 @@ SQL
 }
 
 restart_gateway_if_compose() {
-  if [[ ! -f "${ROOT}/.env.prod" ]]; then
-    return 0
-  fi
-  if ! docker compose -f "${COMPOSE_FILE}" ps gateway --status running --quiet 2>/dev/null | grep -q .; then
+  if ! compose ps gateway --status running --quiet 2>/dev/null | grep -q .; then
     return 0
   fi
   echo "Restarting gateway to reload catalog..."
-  docker compose \
-    --env-file "${ROOT}/.env.prod" \
-    --env-file "${ROOT}/gateway/.env" \
-    --env-file "${ROOT}/server/.env" \
-    --env-file "${ROOT}/keycloak/.env" \
-    -f "${COMPOSE_FILE}" \
-    restart gateway
+  compose restart gateway
 }
 
 wait_ready() {
