@@ -15,6 +15,10 @@ kcadm="${KCADM:-/opt/keycloak/bin/kcadm.sh}"
   --server "$KEYCLOAK_URL" --realm master \
   --user "$KEYCLOAK_ADMIN" --password "$KEYCLOAK_ADMIN_PASSWORD"
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+export KEYCLOAK_URL KEYCLOAK_REALM KEYCLOAK_ADMIN KEYCLOAK_ADMIN_PASSWORD KCADM
+"${SCRIPT_DIR}/fix-client-scopes.sh"
+
 for realm in "$KEYCLOAK_REALM" master; do
   "$kcadm" update "realms/${realm}" -r master -s loginTheme=kb -s adminTheme=kb
   echo "Set loginTheme=kb and adminTheme=kb on realm '${realm}'."

@@ -40,7 +40,7 @@ docker pull ghcr.io/lennylin-lab/knowledge-base-keycloak:v1.0.0
 | `/opt/keycloak/providers/` | zymlabs Turnstile provider JAR |
 | `/opt/keycloak/themes/kb/` | 登录主题（`parent=cloudflare-turnstile`）与 Admin 主题（`parent=keycloak.v2`），含 favicon |
 
-Realm、client、CSP 细节、Turnstile browser flow 绑定 **不在镜像内**；首次空库启动时由编排挂载 `keycloak/import/cybervem-realm.json`（`--import-realm`），导入后运行 `keycloak/scripts/post-import.sh` 完成 Turnstile 单页登录等配置。
+Realm、client、CSP 细节、Turnstile browser flow 绑定 **不在镜像内**；首次空库启动时由编排挂载 `keycloak/import/cybervem-realm.json`（`--import-realm`）。该 JSON **必须**包含标准 OIDC client scopes（`basic` 含 `sub` mapper、`profile`、`email` 等）；仅自定义 `kb-api-audience` 会导致 import 警告且 token 无 `sub`。`keycloak/client-scopes-standard.json` 供 bootstrap 脚本补建；导入后运行 `--profile bootstrap up keycloak-post-import`（或 `post-import.sh`）完成 scope 修复、Turnstile 与主题配置。
 
 ### 进程与端口
 

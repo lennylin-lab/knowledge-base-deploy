@@ -58,6 +58,9 @@ wait_for_keycloak() {
 echo "Waiting for Keycloak..."
 wait_for_keycloak
 
+echo "Ensuring standard client scopes (basic/sub/profile/email)..."
+"${ROOT}/scripts/fix-client-scopes.sh"
+
 echo "Applying kb themes..."
 ./scripts/configure-kb-themes.sh "$KEYCLOAK_REALM" master
 
