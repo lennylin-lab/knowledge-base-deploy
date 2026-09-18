@@ -46,7 +46,21 @@ curl -fsS -H "Authorization: Bearer $GATEWAY_ADMIN_TOKEN" \
 
 为 server subject mint key（见 [configuration.md](../configuration.md) §3.8），将 `KB_EMBEDDING_MODEL` / `KB_EMBEDDING_DIM` 与 catalog 中 **embeddings 声明** 对齐（生产常见 1536，与 pgvector 列宽一致）。
 
-## 路径 B：全新生产部署（手工 SQL）
+## 路径 B：全新生产部署（OpenAI chat + embedding 一键导入）
+
+从本地 dev gateway 库快照导入 `gpt-5.5` + `qwen3-embedding`（1536 维）：
+
+1. 完成 `$DC up -d`（Gateway `/readyz` 200）。
+2. 在 `gateway/.env` 配置 `GATEWAY_ADMIN_TOKEN`、`OPENAI_API_KEY__OPENAI_PRIMARY`、`OPENAI_API_KEY__OPENAI_EMBED`（或共享 `OPENAI_API_KEY`）；按需覆盖 `GATEWAY_OPENAI_*_BASE_URL`。
+3. 运行：
+
+```bash
+./gateway/scripts/bootstrap-openai.sh
+```
+
+脚本写入 catalog SQL、重启 gateway、设置 subject 默认模型、mint service key，并打印 `server/.env` 片段。
+
+## 路径 B2：全新生产部署（手工 SQL）
 
 1. 完成 `$DC up -d`（Gateway `/readyz` 200），在 `gateway/.env` 配置上游 `OPENAI_API_KEY*`。
 2. 用只读事务参考现有环境或运维文档，向 `providers`、`model_catalog`、`model_routes`、`access_policies` 插入行（需自行维护 `config_version` / capabilities JSON）。
