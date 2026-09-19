@@ -615,6 +615,8 @@ flutter run --dart-define=OIDC_ISSUER=http://localhost:8180/realms/kb
 
 使用 [`.env.prod.example`](.env.prod.example) → `.env.prod` 与 [`docker-compose.prod.yml`](docker-compose.prod.yml) 统一编排。完整步骤见 [README.md](README.md)。
 
+**已上线后的同步与镜像升级**（部署仓库 push / `git pull`、GHCR 标签 bump、`pull` + `up`、分组件注意点、验证与回滚）见 [README.md § 镜像与配置同步](README.md#镜像与配置同步)。
+
 **env 文件分工：**
 
 | 文件 | 变量示例 | 说明 |
