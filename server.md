@@ -49,9 +49,9 @@ docker pull ghcr.io/lennylin-lab/knowledge-base-server/elasticsearch:8.17.3-ik
 
 | 角色 | 容器内命令 | 说明 |
 | --- | --- | --- |
-| API | 默认 `uvicorn app.main:app --host 0.0.0.0 --port 8000` | 监听 **8000**；健康检查 `GET /healthz` |
+| API | 默认 `uvicorn app.main:app --host 0.0.0.0 --port 8000` | 监听 **8000**；健康检查 `GET /healthz`（compose 用 Python urllib，镜像内无 curl） |
 | Migrate | 覆盖 command 为 `alembic upgrade head` | 一次性 job；DSN 来自 `KB_DATABASE_URL` |
-| Worker | 覆盖 command 为 `python -m app.cli worker` | ARQ 索引 worker；需 `KB_REDIS_URL`（见 `server/` 配置） |
+| Worker | 覆盖 command 为 `python -m app.cli worker` | ARQ 索引 worker；无 HTTP 探活；需 `KB_REDIS_URL`（见 `server/` 配置） |
 | Reindex | 覆盖 command 为 `python -m app.cli reindex` | 补偿性全量重索引；按需手动触发 |
 
 同一 API 镜像同时服务 **api**、**migrate**、**worker**、**reindex** 等角色：Compose 中通过 `command` / `entrypoint` 区分，无需单独镜像。

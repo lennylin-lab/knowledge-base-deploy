@@ -46,6 +46,8 @@ x-gateway-database-url: &gateway-database-url >-
 x-server-database-url: &server-database-url >-
   ${KB_DATABASE_URL:-postgresql+asyncpg://${KB_DB_USER:-kb}:${KB_DB_PASSWORD:-kb-local-throwaway}@postgres:5432/${KB_DB_NAME:-kb}}
 
+x-server-gateway-base-url: &server-gateway-base-url http://gateway:8080/v1
+
 x-gateway-image: &gateway-image
   image: ${GATEWAY_IMAGE:-ghcr.io/lennylin-lab/knowledge-base-gateway:v1.3}
 
@@ -183,6 +185,8 @@ services:
       KB_DATABASE_URL: *server-database-url
       KB_ELASTICSEARCH_URL: http://elasticsearch:9200
       KB_REDIS_URL: redis://redis:6379
+      KB_CHAT_BASE_URL: *server-gateway-base-url
+      KB_EMBEDDING_BASE_URL: *server-gateway-base-url
     ports:
       - "127.0.0.1:${SERVER_HOST_PORT:-8000}:8000"
     depends_on:
@@ -197,8 +201,12 @@ services:
       gateway:
         condition: service_healthy
     healthcheck:
+      # Server image is python:3.12-slim — no curl; match Dockerfile HEALTHCHECK.
       test:
-        ["CMD-SHELL", "curl -fs http://127.0.0.1:8000/healthz || exit 1"]
+        [
+          "CMD-SHELL",
+          "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz')\" || exit 1",
+        ]
       interval: 5s
       timeout: 5s
       retries: 24
@@ -218,6 +226,9 @@ services:
       KB_DATABASE_URL: *server-database-url
       KB_ELASTICSEARCH_URL: http://elasticsearch:9200
       KB_REDIS_URL: redis://redis:6379
+      KB_CHAT_BASE_URL: *server-gateway-base-url
+      KB_EMBEDDING_BASE_URL: *server-gateway-base-url
+    # No healthcheck: worker is a long-running ARQ process without an HTTP listener.
     depends_on:
       postgres:
         condition: service_healthy

@@ -487,7 +487,7 @@ flutter run \
 
 | 调用方 | Keycloak Issuer（OIDC） | Gateway API |
 | --- | --- | --- |
-| `server` / `worker` 容器 | `https://<公网域名>/realms/CyberVem`（`KB_OIDC_ISSUER`） | `http://gateway:8080/v1`（`KB_CHAT_BASE_URL`） |
+| `server` / `worker` 容器 | `https://<公网域名>/realms/CyberVem`（`KB_OIDC_ISSUER`） | `http://gateway:8080/v1`（`KB_CHAT_BASE_URL` / `KB_EMBEDDING_BASE_URL`） |
 | 宿主机 curl / 反向代理 | `http://127.0.0.1:8080` | `http://127.0.0.1:8091/v1` |
 
 PostgreSQL、Redis、Elasticsearch **无宿主机端口**，仅 `postgres` / `redis` / `elasticsearch` 主机名可达。
@@ -627,7 +627,7 @@ flutter run --dart-define=OIDC_ISSUER=http://localhost:8180/realms/kb
 | `server/.env` | `KB_CHAT_*`, `KB_EMBEDDING_*`, `KB_OIDC_*`, `SERVER_HOST_PORT` | Server 业务与 OIDC |
 | `keycloak/.env` | `KEYCLOAK_HOSTNAME`, `KEYCLOAK_ADMIN_*`, `TURNSTILE_*` | Keycloak 与 bootstrap |
 
-**Compose 注入（勿在 `server/.env` 重复）：** `GATEWAY_DATABASE_URL`、`GATEWAY_REDIS_ADDR`、`KB_DATABASE_URL`、`KB_ELASTICSEARCH_URL`、`KB_REDIS_URL`。
+**Compose 注入（勿在 `server/.env` 重复）：** `GATEWAY_DATABASE_URL`、`GATEWAY_REDIS_ADDR`、`KB_DATABASE_URL`、`KB_ELASTICSEARCH_URL`、`KB_REDIS_URL`、`KB_CHAT_BASE_URL`、`KB_EMBEDDING_BASE_URL`（后两者默认 `http://gateway:8080/v1`）。
 
 密码含 `/ ? # @ :` 等 URI 保留字符时，在 `.env.prod` 设置完整 `GATEWAY_DATABASE_URL` / `KB_DATABASE_URL`（URL 编码密码），见 [`.env.prod.example`](.env.prod.example)。
 
@@ -708,7 +708,7 @@ KB_CHAT_API_KEY=<minted-via-admin-api>
 ### Server
 
 - [ ] `KB_DATABASE_URL` + ES 可达，migration 已跑
-- [ ] `KB_CHAT_BASE_URL` 指向 Gateway `/v1` 根
+- [ ] `KB_CHAT_BASE_URL` / `KB_EMBEDDING_BASE_URL` 指向 Gateway `/v1` 根（compose 默认注入）
 - [ ] `KB_CHAT_API_KEY` 为有效 Gateway key
 - [ ] embedding 路径与 chat 策略一致（直连 provider 或都走 Gateway）
 - [ ] 若启用 OIDC：`KB_OIDC_ISSUER` + 用户 subject 已入库 + `KB_OIDC_AUDIENCE` 正确
